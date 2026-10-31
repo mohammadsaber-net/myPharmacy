@@ -1,0 +1,4 @@
+import Link from 'next/link';
+import { StoreHeader } from '@/components/store/header';
+type Props = { searchParams: Promise<{ order?: string }> };
+export default async function CheckoutSuccessPage({ searchParams }: Props) { const { order } = await searchParams; return <><StoreHeader/><main className="mx-auto max-w-2xl px-4 py-16 text-center"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-4xl text-emerald-700">✓</div><h1 className="mt-6 text-3xl font-black">تم استلام طلبك بنجاح</h1><p className="mt-3 leading-7 text-slate-600">شكرًا لطلبك من صيدليتي. سيتواصل معك فريق الصيدلية لتأكيد المنتجات ورسوم التوصيل.</p>{order && <p className="mt-5 rounded-xl bg-white p-4 font-bold">رقم الطلب: <span dir="ltr">{order}</span></p>}<Link href="/products" className="mt-7 inline-block rounded-xl bg-emerald-700 px-6 py-3 font-bold text-white">العودة للمتجر</Link></main></>; }
