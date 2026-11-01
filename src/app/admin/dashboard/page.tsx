@@ -24,5 +24,40 @@ export default async function AdminDashboardPage() {
     ['/admin/dashboard/requests','طلبات المنتجات','متابعة طلبات المنتجات غير المتوفرة'],
     ['/admin/dashboard/messages','رسائل العملاء','قراءة الرسائل وتسجيل الردود'],
   ];
-  return <main className="mx-auto max-w-6xl px-4 py-8" dir="rtl"><div className="mb-8 flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm text-gray-500">مرحبًا، {admin.fullName}</p><h1 className="text-3xl font-bold">لوحة تحكم صيدليتي</h1></div></div><section className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">{[['المنتجات',productCount.value],['التصنيفات',categoryCount.value],['كل الطلبات',orderCount.value],['طلبات جديدة',pendingCount.value],['مخزون منخفض',lowStockCount.value],['طلبات منتجات جديدة',newRequestCount.value],['رسائل غير مقروءة',unreadMessageCount.value]].map(([label,value])=><div key={String(label)} className="rounded-2xl border bg-white p-5"><p className="text-sm text-gray-500">{label}</p><p className="mt-2 text-3xl font-bold">{value}</p></div>)}</section><section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{links.map(([href,title,desc])=><Link href={href} key={href} className="rounded-2xl border bg-white p-6 transition hover:border-indigo-300 hover:shadow-sm"><h2 className="mb-2 text-xl font-bold">{title}</h2><p className="text-sm text-gray-500">{desc}</p><span className="mt-5 inline-block text-sm font-semibold text-indigo-700">فتح الإدارة ←</span></Link>)}</section></main>;
+  return <main className="mx-auto max-w-6xl px-4 py-8" dir="rtl">
+    <div 
+    className="mb-8 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p className="text-sm text-gray-500">مرحبًا، {admin.fullName}
+          </p>
+          <h1 className="text-3xl font-bold">
+            لوحة تحكم صيدليتي</h1>
+            </div>
+            </div>
+          <section className="flex flex-wrap gap-4 mb-8">
+            
+            {[
+              ['المنتجات',productCount.value],
+              ['التصنيفات',categoryCount.value]
+              ,['كل الطلبات',orderCount.value]
+              ,['طلبات جديدة',pendingCount.value]
+              ,['مخزون منخفض',lowStockCount.value]
+              ,['طلبات منتجات جديدة',newRequestCount.value]
+              ,['رسائل غير مقروءة',unreadMessageCount.value]
+            ].map(([label,value])=><div key={String(label)}
+             className="rounded-2xl border bg-white p-5">
+              <p className="text-sm text-gray-500">{label}</p>
+              <p className="mt-2 text-3xl font-bold">{value}</p>
+              </div>)}
+          </section>
+          <section className="grid gap-4 grid-cols-2 md:grid-cols-3">
+            {links.map(([href,title,desc])=>
+            <Link href={href} key={href} 
+            className="rounded-2xl border bg-white p-6 transition
+             hover:border-indigo-300 hover:shadow-sm">
+              <h2 className="mb-2 text-xl font-bold">{title}</h2>
+              <p className="text-sm text-gray-500">{desc}</p>
+              <span className="mt-5 inline-block text-sm font-semibold
+               text-indigo-700">فتح الإدارة ←</span></Link>)}</section>
+               </main>;
 }

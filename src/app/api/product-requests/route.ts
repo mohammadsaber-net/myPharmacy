@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       details: parsed.data.details || null,
       status: 'new',
     }).returning({ id: productRequests.id });
-    return NextResponse.json({ ok: true, id: created.id, message: 'تم استلام طلبك، وسنتواصل معك بعد مراجعة توافر المنتج.' }, { status: 201 });
+    return NextResponse.json({ ok: true, id: created.id, message: 'تم استلام طلبك، وسنتواصل معك قريبا لتأكيد وصول الصنف.' }, { status: 201 });
   } catch (error) {
     console.error('Product request submission failed:', error);
     return NextResponse.json({ error: 'تعذر إرسال الطلب حاليًا. حاول مرة أخرى.' }, { status: 500 });

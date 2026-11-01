@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
-import { inventoryMovements, products } from '@/db/schema';
+import { inventoryMovements, productImages, products } from '@/db/schema';
 import { requireAdminResponse } from '@/lib/auth/require-admin';
+import { deleteCloudinaryImages } from '@/lib/cloudinary';
 export const runtime = 'nodejs';
 const schema = z.object({
   name: z.string().trim().min(2).max(220), slug: z.string().trim().min(2).max(240).regex(/^[a-z0-9-]+$/),
@@ -37,6 +38,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAdminResponse(); if (auth.response) return auth.response;
   const { id } = await params;
-  const [updated] = await db.update(products).set({ isActive: false, updatedAt: new Date() }).where(eq(products.id, id)).returning({ id: products.id });
-  return updated ? NextResponse.json({ ok: true, message: 'تم إخفاء المنتج دون حذف سجل الطلبات.' }) : NextResponse.json({ error: 'المنتج غير موجود.' }, { status: 404 });
+  const result = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(products).set({ isActive: false, updatedAt: new Date() }).where(eq(products.id, id)).returning({ id: products.id });
+    if (!updated) return null;
+    const images = await tx.delete(productImages).where(eq(productImages.productId, id)).returning({ publicId: productImages.publicId });
+    return images.map((image) => image.publicId || '').filter(Boolean);
+  });
+  if (!result) return NextResponse.json({ error: 'المنتج غير موجود.' }, { status: 404 });
+  const cleanupFailures = await deleteCloudinaryImages(result);
+  return NextResponse.json({ ok: true, message: 'تم إخفاء المنتج وحذف صوره من التخزين السحابي مع الاحتفاظ بسجل الطلبات.', cleanupWarning: cleanupFailures.length ? 'تعذر حذف بعض الصور من Cloudinary. راجع سجلات الخادم.' : undefined });
 }

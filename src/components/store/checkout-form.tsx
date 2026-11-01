@@ -4,9 +4,11 @@ import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { formatEGP } from '@/lib/money';
 import { useCart } from './cart-provider';
+import { useStoreUi } from './store-ui-context';
 
 export function CheckoutForm() {
   const { items, clearCart } = useCart();
+  const { toast } = useStoreUi();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -14,16 +16,16 @@ export function CheckoutForm() {
   const hasPrescription = items.some((item) => item.requiresPrescription);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError('');
-    if (!items.length) { setError('السلة فارغة. أضف منتجات أولًا.'); return; }
-    if (hasPrescription) { setError('تحتوي السلة على منتج يتطلب مراجعة الصيدلي أو وصفة طبية. يرجى التواصل مع الصيدلية قبل إتمام الطلب.'); return; }
+    if (!items.length) { setError('السلة فارغة. أضف منتجات أولًا.'); toast('السلة فارغة. أضف منتجات أولًا.', 'error'); return; }
+    if (hasPrescription) { setError('تحتوي السلة على منتج يتطلب مراجعة الصيدلي أو وصفة طبية. يرجى التواصل مع الصيدلية قبل إتمام الطلب.'); toast('تحتوي السلة على منتج يتطلب مراجعة الصيدلي.', 'error'); return; }
     const form = new FormData(event.currentTarget);
     setLoading(true);
     try {
       const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerName: form.get('customerName'), phone: form.get('phone'), address: form.get('address'), notes: form.get('notes'), items: items.map(({ productId, quantity }) => ({ productId, quantity })) }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'تعذر تسجيل الطلب. حاول مرة أخرى.');
-      clearCart(); router.push(`/checkout/success?order=${encodeURIComponent(result.orderNumber)}`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'حدث خطأ غير متوقع.'); }
+      clearCart(); toast('تم استلام طلبك بنجاح.', 'success'); router.push(`/checkout/success?order=${encodeURIComponent(result.orderNumber)}`);
+    } catch (cause) { const message = cause instanceof Error ? cause.message : 'حدث خطأ غير متوقع.'; setError(message); toast(message, 'error'); }
     finally { setLoading(false); }
   }
   if (!items.length) return <div className="rounded-2xl bg-white p-8 text-center"><p className="font-bold">السلة فارغة</p><button onClick={() => router.push('/products')} className="mt-4 rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white">العودة للمنتجات</button></div>;

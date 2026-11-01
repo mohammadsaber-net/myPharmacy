@@ -50,9 +50,12 @@ export default async function AdminDashboardLayout({ children }: Readonly<{ chil
             <AdminLogout />
           </div>
         </header>
+        <div className="bg-white">
+
         <nav className="admin-mobile-nav" aria-label="التنقل السريع">
           {navigation.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
         </nav>
+        </div>
         <div className="admin-content">{children}</div>
       </div>
     </div>

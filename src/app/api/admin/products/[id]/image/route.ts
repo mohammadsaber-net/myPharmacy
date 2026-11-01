@@ -1,73 +1,102 @@
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { productImages, products } from '@/db/schema';
 import { requireAdminResponse } from '@/lib/auth/require-admin';
-import { deleteCloudinaryImage, uploadProductImage } from '@/lib/cloudinary';
+import { deleteCloudinaryImages, uploadProductImage } from '@/lib/cloudinary';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAX_IMAGES = 10;
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
 
-export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+type RouteContext = { params: Promise<{ id: string }> };
+
+export async function POST(req: Request, { params }: RouteContext) {
   const auth = await requireAdminResponse();
   if (auth.response) return auth.response;
   const { id } = await params;
   const formData = await req.formData().catch(() => null);
-  const file = formData?.get('image');
-  if (!(file instanceof File)) return NextResponse.json({ error: 'اختر صورة للمنتج أولًا.' }, { status: 400 });
-  if (!ALLOWED_TYPES.includes(file.type)) return NextResponse.json({ error: 'نوع الصورة غير مدعوم. استخدم JPG أو PNG أو WEBP أو AVIF.' }, { status: 400 });
-  if (file.size < 1 || file.size > MAX_IMAGE_SIZE) return NextResponse.json({ error: 'حجم الصورة يجب ألا يتجاوز 5 ميجابايت.' }, { status: 400 });
+  if (!formData) return NextResponse.json({ error: 'بيانات الصور غير صالحة.' }, { status: 400 });
+
+  const files = formData.getAll('images').filter((entry): entry is File => entry instanceof File && entry.size > 0);
+  const keepRaw = formData.get('keepImageIds');
+  const primaryRaw = formData.get('primaryImageKey');
+  if (files.length > MAX_IMAGES) return NextResponse.json({ error: `يمكن إضافة ${MAX_IMAGES} صور كحد أقصى في المرة الواحدة.` }, { status: 400 });
+  for (const file of files) {
+    if (!ALLOWED_TYPES.includes(file.type)) return NextResponse.json({ error: 'نوع صورة غير مدعوم. استخدم JPG أو PNG أو WEBP أو AVIF.' }, { status: 400 });
+    if (file.size > MAX_IMAGE_SIZE) return NextResponse.json({ error: 'يجب ألا يتجاوز حجم كل صورة 5 ميجابايت.' }, { status: 400 });
+  }
+
+  let keepImageIds: string[];
+  try {
+    keepImageIds = keepRaw ? JSON.parse(String(keepRaw)) as string[] : [];
+    if (!Array.isArray(keepImageIds) || keepImageIds.some((value) => typeof value !== 'string') || new Set(keepImageIds).size !== keepImageIds.length) throw new Error('invalid');
+  } catch {
+    return NextResponse.json({ error: 'قائمة الصور المحتفظ بها غير صحيحة.' }, { status: 400 });
+  }
+
   const [product] = await db.select({ id: products.id, name: products.name }).from(products).where(eq(products.id, id)).limit(1);
   if (!product) return NextResponse.json({ error: 'المنتج غير موجود.' }, { status: 404 });
+  const currentImages = await db.select().from(productImages).where(eq(productImages.productId, id)).orderBy(asc(productImages.sortOrder));
+  const currentIds = new Set(currentImages.map((image) => image.id));
+  if (keepImageIds.some((imageId) => !currentIds.has(imageId))) {
+    return NextResponse.json({ error: 'بعض الصور المحددة لا تخص هذا المنتج. حدّث الصفحة وحاول مرة أخرى.' }, { status: 409 });
+  }
+  if (keepImageIds.length + files.length > MAX_IMAGES) {
+    return NextResponse.json({ error: `لا يمكن أن يتجاوز إجمالي صور المنتج ${MAX_IMAGES} صور.` }, { status: 400 });
+  }
 
-  let uploaded: { secureUrl: string; publicId: string } | null = null;
-  let databaseCommitted = false;
+  const uploaded: Array<{ secureUrl: string; publicId: string }> = [];
   try {
-    uploaded = await uploadProductImage(file, id);
-    const oldImages = await db.select({ id: productImages.id, publicId: productImages.publicId })
-      .from(productImages).where(and(eq(productImages.productId, id), eq(productImages.isPrimary, true)));
+    for (const file of files) uploaded.push(await uploadProductImage(file, id));
+
+    const newPrimaryMatch = /^new:(\d+)$/.exec(String(primaryRaw || ''));
+    const existingPrimaryId = String(primaryRaw || '').startsWith('existing:') ? String(primaryRaw).slice('existing:'.length) : null;
+    const primaryNewIndex = newPrimaryMatch ? Number(newPrimaryMatch[1]) : -1;
+    const validPrimary = existingPrimaryId ? keepImageIds.includes(existingPrimaryId) : primaryNewIndex >= 0 && primaryNewIndex < uploaded.length;
+    const primaryKey = validPrimary ? String(primaryRaw) : keepImageIds.length ? `existing:${keepImageIds[0]}` : uploaded.length ? 'new:0' : null;
+
+    const keptImages = keepImageIds.map((imageId) => currentImages.find((image) => image.id === imageId)!).filter(Boolean);
+    const nextImages: Array<{ id?: string; productId: string; imageUrl: string; publicId: string | null; altText: string }> = [
+      ...keptImages.map((image) => ({ id: image.id, productId: id, imageUrl: image.imageUrl, publicId: image.publicId, altText: image.altText || product.name })),
+      ...uploaded.map((image) => ({ productId: id, imageUrl: image.secureUrl, publicId: image.publicId, altText: product.name })),
+    ];
+
     await db.transaction(async (tx) => {
-      await tx.update(productImages).set({ isPrimary: false }).where(eq(productImages.productId, id));
-      await tx.insert(productImages).values({
-        productId: id,
-        imageUrl: uploaded!.secureUrl,
-        publicId: uploaded!.publicId,
-        altText: product.name,
-        isPrimary: true,
-        sortOrder: 0,
-      });
-    });
-    databaseCommitted = true;
-    for (const oldImage of oldImages) {
-      if (oldImage.publicId) {
-        try { await deleteCloudinaryImage(oldImage.publicId); } catch (error) { console.error('Cloudinary old image cleanup failed:', error); }
+      await tx.delete(productImages).where(eq(productImages.productId, id));
+      if (nextImages.length) {
+        await tx.insert(productImages).values(nextImages.map((image, index) => ({
+          ...image,
+          sortOrder: index,
+          isPrimary: primaryKey === (image.id ? `existing:${image.id}` : `new:${index - keptImages.length}`),
+        })));
       }
-      try { await db.delete(productImages).where(eq(productImages.id, oldImage.id)); } catch (error) { console.error('Old product image record cleanup failed:', error); }
-    }
-    return NextResponse.json({ ok: true, imageUrl: uploaded.secureUrl });
+    });
+
+    const retained = new Set(keepImageIds);
+    const removedPublicIds = currentImages.filter((image) => !retained.has(image.id)).map((image) => image.publicId || '').filter(Boolean);
+    const cleanupFailures = await deleteCloudinaryImages(removedPublicIds);
+    return NextResponse.json({
+      ok: true,
+      images: nextImages.length,
+      cleanupWarning: cleanupFailures.length ? 'تم تحديث الصور، لكن تعذر حذف بعض الصور القديمة من Cloudinary. راجع سجلات الخادم.' : undefined,
+    });
   } catch (error) {
-    if (uploaded?.publicId && !databaseCommitted) {
-      try { await deleteCloudinaryImage(uploaded.publicId); } catch (cleanupError) { console.error('Cloudinary upload rollback failed:', cleanupError); }
-    }
-    console.error('Product image upload failed:', error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'تعذر رفع صورة المنتج.' }, { status: 500 });
+    const cleanupFailures = await deleteCloudinaryImages(uploaded.map((image) => image.publicId));
+    if (cleanupFailures.length) console.error('Cloudinary rollback cleanup failed:', cleanupFailures);
+    console.error('Product image update failed:', error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'تعذر تحديث صور المنتج.' }, { status: 500 });
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(_req: Request, { params }: RouteContext) {
   const auth = await requireAdminResponse();
   if (auth.response) return auth.response;
   const { id } = await params;
-  const images = await db.select({ id: productImages.id, publicId: productImages.publicId })
-    .from(productImages).where(eq(productImages.productId, id));
-  if (!images.length) return NextResponse.json({ ok: true });
+  const images = await db.select({ id: productImages.id, publicId: productImages.publicId }).from(productImages).where(eq(productImages.productId, id));
   await db.delete(productImages).where(eq(productImages.productId, id));
-  for (const image of images) {
-    if (image.publicId) {
-      try { await deleteCloudinaryImage(image.publicId); } catch (error) { console.error('Cloudinary image deletion failed:', error); }
-    }
-  }
-  return NextResponse.json({ ok: true });
+  const cleanupFailures = await deleteCloudinaryImages(images.map((image) => image.publicId || ''));
+  return NextResponse.json({ ok: true, cleanupWarning: cleanupFailures.length ? 'تعذر حذف بعض الصور من Cloudinary. راجع سجلات الخادم.' : undefined });
 }

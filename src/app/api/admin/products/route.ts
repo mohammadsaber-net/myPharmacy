@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { and, desc, eq, ilike, or } from 'drizzle-orm';
+import { asc, desc, eq, ilike, inArray, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '@/db';
 import { categories, products, productImages } from '@/db/schema';
@@ -10,24 +10,28 @@ const productSchema = z.object({
   description: z.string().max(5000).optional().nullable(), sku: z.string().max(80).optional().nullable(),
   categoryId: z.string().uuid().optional().nullable(),
   type: z.enum(['medicine','medical_supply','cosmetics','health_product']),
-  price: z.coerce.number().min(0).max(999999999),
-  discount: z.coerce.number().min(0).max(100).default(0),
-  quantity: z.coerce.number().int().min(0).max(1000000),
-  lowStockThreshold: z.coerce.number().int().min(0).max(1000000).default(5),
+  price: z.coerce.number().min(0).max(999999999), discount: z.coerce.number().min(0).max(100).default(0),
+  quantity: z.coerce.number().int().min(0).max(1000000), lowStockThreshold: z.coerce.number().int().min(0).max(1000000).default(5),
   requiresPrescription: z.boolean().default(false), isActive: z.boolean().default(true),
 });
 export async function GET(req: Request) {
   const auth = await requireAdminResponse(); if (auth.response) return auth.response;
   const term = new URL(req.url).searchParams.get('q')?.trim();
-  const query = db.select({
+  const baseQuery = db.select({
     id: products.id, name: products.name, slug: products.slug, sku: products.sku, description: products.description,
-    type: products.type, price: products.price, discount: products.discount,
-    quantity: products.quantity, lowStockThreshold: products.lowStockThreshold,
-    requiresPrescription: products.requiresPrescription, isActive: products.isActive,
-    categoryId: products.categoryId, categoryName: categories.name, imageUrl: productImages.imageUrl,
-  }).from(products).leftJoin(categories, eq(products.categoryId, categories.id)).leftJoin(productImages, and(eq(productImages.productId, products.id), eq(productImages.isPrimary, true))).orderBy(desc(products.createdAt));
-  const rows = term ? await query.where(or(ilike(products.name, `%${term}%`), ilike(products.sku, `%${term}%`))) : await query;
-  return NextResponse.json(rows, { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
+    type: products.type, price: products.price, discount: products.discount, quantity: products.quantity,
+    lowStockThreshold: products.lowStockThreshold, requiresPrescription: products.requiresPrescription,
+    isActive: products.isActive, categoryId: products.categoryId, categoryName: categories.name,
+  }).from(products).leftJoin(categories, eq(products.categoryId, categories.id)).orderBy(desc(products.createdAt));
+  const rows = term ? await baseQuery.where(or(ilike(products.name, `%${term}%`), ilike(products.sku, `%${term}%`))) : await baseQuery;
+  const ids = rows.map((row) => row.id);
+  const images = ids.length ? await db.select().from(productImages).where(inArray(productImages.productId, ids)).orderBy(asc(productImages.sortOrder)) : [];
+  const grouped = new Map<string, typeof images>();
+  for (const image of images) grouped.set(image.productId, [...(grouped.get(image.productId) || []), image]);
+  return NextResponse.json(rows.map((row) => {
+    const productImagesList = grouped.get(row.id) || [];
+    return { ...row, images: productImagesList, imageUrl: productImagesList.find((image) => image.isPrimary)?.imageUrl || productImagesList[0]?.imageUrl || null };
+  }), { headers: { 'Cache-Control': 'private, no-store, max-age=0' } });
 }
 export async function POST(req: Request) {
   const auth = await requireAdminResponse(); if (auth.response) return auth.response;
