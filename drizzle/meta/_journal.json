@@ -15,6 +15,13 @@
       "when": 1793484368211,
       "tag": "0001_admin_login_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793966239976,
+      "tag": "0002_product_names",
+      "breakpoints": true
     }
   ]
 }

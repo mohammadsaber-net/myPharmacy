@@ -75,6 +75,8 @@ export const products = pgTable('products', {
   slug: varchar('slug', { length: 240 }).notNull(),
   description: text('description'),
   sku: varchar('sku', { length: 80 }),
+  scientificName: varchar('scientific_name', { length: 220 }).notNull(),
+  englishName: varchar('english_name', { length: 220 }).notNull(),
   type: productTypeEnum('type').notNull(),
   price: numeric('price', { precision: 12, scale: 2 }).notNull(),
   discount: numeric('discount', { precision: 5, scale: 2 }).notNull().default('0'),

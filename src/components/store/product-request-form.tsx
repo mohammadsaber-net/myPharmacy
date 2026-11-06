@@ -2,9 +2,9 @@
 import { FormEvent, useState } from 'react';
 import { useStoreUi } from './store-ui-context';
 
-export default function ProductRequestForm({ onSuccess }: { onSuccess?: () => void }) {
+export default function ProductRequestForm({ onSuccess, initialProductName = '' }: { onSuccess?: () => void; initialProductName?: string }) {
   const { toast } = useStoreUi();
-  const [form, setForm] = useState({ customerName: '', phone: '', productName: '', details: '' });
+  const [form, setForm] = useState({ customerName: '', phone: '', productName: initialProductName, details: '' });
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true);
